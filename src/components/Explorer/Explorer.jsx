@@ -65,6 +65,7 @@ class Explorer extends React.Component {
       loading: false,
       result: {},
       builder: urlState,
+      queryHistory: [],
     };
     this.instantiateEditor = this.instantiateEditor.bind(this);
     this.toggleEditor = this.toggleEditor.bind(this);
@@ -75,6 +76,7 @@ class Explorer extends React.Component {
     this.buildQuery = this.buildQuery.bind(this);
     this.syncWindowHistory = this.syncWindowHistory.bind(this);
     this.handleFieldUpdate = this.handleFieldUpdate.bind(this);
+    this.handleHistory = this.handleHistory.bind(this);
   }
   componentDidMount() {
     this.props.dispatchProPlayers();
@@ -117,22 +119,27 @@ class Explorer extends React.Component {
     this.setState({ ...this.state, showEditor: !this.state.showEditor });
     this.editor.renderer.updateFull();
   }
-  syncWindowHistory() {
-    const sqlString = this.getSqlString();
+  syncWindowHistory(sqlStringOverride, stringToSerializeOverride) {
+    const sqlString = sqlStringOverride || this.getSqlString();
     const objectToSerialize = this.state.showEditor ? { sql: sqlString, format: this.state.builder.format } : this.state.builder;
-    const stringToSerialize = `?${querystring.stringify(objectToSerialize)}`;
+    const stringToSerialize = stringToSerializeOverride || `?${querystring.stringify(objectToSerialize)}`;
     window.history.pushState('', '', stringToSerialize);
   }
   handleQuery() {
     if (this.state.loadingEditor === true) {
       return setTimeout(this.handleQuery, 1000);
     }
+    // duplicate
+    const sqlString = this.getSqlString();
+    const objectToSerialize = this.state.showEditor ? { sql: sqlString, format: this.state.builder.format } : this.state.builder;
+    const stringToSerialize = `?${querystring.stringify(objectToSerialize)}`;
+    // duplicate
     this.setState({
       ...this.state,
+      queryHistory: [...this.state.queryHistory, { sqlString, stringToSerialize, }],
       loading: true,
     });
     this.syncWindowHistory();
-    const sqlString = this.getSqlString();
     return fetch(`${process.env.REACT_APP_API_HOST}/api/explorer?sql=${encodeURIComponent(sqlString)}`).then(jsonResponse).then(this.handleResponse);
   }
   handleCancel() {
@@ -148,6 +155,13 @@ class Explorer extends React.Component {
       loading: false,
       result: json,
     });
+  }
+  handleHistory() {
+    if (this.state.queryHistory.length) {
+      let { sqlString, stringToSerialize } = this.state.queryHistory.pop();
+      this.syncWindowHistory(sqlString, stringToSerialize);
+      fetch(`${process.env.REACT_APP_API_HOST}/api/explorer?sql=${encodeURIComponent(sqlString)}`).then(jsonResponse).then(this.handleResponse);
+    }
   }
   handleFieldUpdate(builderField, value) {
     this.setState({
@@ -178,7 +192,7 @@ class Explorer extends React.Component {
     }
     const expandedFields = fields(this.props.proPlayers, this.props.leagues, this.props.teams);
     const expandedBuilder = expandBuilderState(this.state.builder, expandedFields);
-    const { handleQuery, handleCancel, getSqlString } = this;
+    const { handleQuery, handleCancel, getSqlString, handleHistory } = this;
     const explorer = this;
     return (
       <div>
@@ -198,6 +212,13 @@ class Explorer extends React.Component {
             style={{ margin: '5px' }}
             label={this.state.loading ? strings.explorer_cancel_button : strings.explorer_query_button}
             onClick={this.state.loading ? handleCancel : handleQuery}
+          />
+          <RaisedButton
+            primary={!this.state.loading}
+            secondary={this.state.loading}
+            style={{ margin: '5px' }}
+            label="History"
+            onClick={handleHistory}
           />
           <RaisedButton
             secondary
@@ -233,6 +254,9 @@ class Explorer extends React.Component {
               onClick={() => window.open(`${process.env.REACT_APP_API_HOST}/api/explorer?sql=${encodeURIComponent(getSqlString())}`, '_blank')}
               context={explorer}
             />
+            <select>
+             {this.state.queryHistory.map(q => <option>{q.sqlString}</option>)} 
+            </select>  
           </span>
         </div>
         <Heading title={strings.explorer_results} subtitle={`${(this.state.result.rows || []).length} ${strings.explorer_num_rows}`} />
